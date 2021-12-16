@@ -1,6 +1,7 @@
 mod args;
 
 use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoincore_rpc_json::HashOrHeight;
 use hyper::{
 	header::CONTENT_TYPE,
 	service::{make_service_fn, service_fn},
@@ -8,13 +9,14 @@ use hyper::{
 };
 use lazy_static::lazy_static;
 use prometheus::{
-	labels, opts, register_counter, register_gauge, Counter, Encoder, Gauge, TextEncoder,
+	register_counter, register_counter_vec, register_gauge, register_gauge_vec, Counter,
+	CounterVec, Encoder, Gauge, GaugeVec, TextEncoder,
 };
 use std::sync::Arc;
 
 use crate::args::Args;
 
-// taken from https://github.com/jvstein/bitcoin-prometheus-exporter/blob/master/bitcoind-monitor.py
+// converted from https://github.com/jvstein/bitcoin-prometheus-exporter/blob/master/bitcoind-monitor.py
 
 lazy_static! {
 	static ref BITCOIN_UPTIME: Gauge = register_gauge!(
@@ -112,17 +114,17 @@ lazy_static! {
 		"Total fee to process the latest block"
 	)
 	.unwrap();
-	static ref BITCOIN_BAN_CREATED: Gauge = register_gauge!(opts!(
+	static ref BITCOIN_BAN_CREATED: GaugeVec = register_gauge_vec!(
 		"bitcoin_ban_created",
 		"Time the ban was created",
-		labels! {"address" => "", "reason" => "",}
-	))
+		&["address", "reason"]
+	)
 	.unwrap();
-	static ref BITCOIN_BANNED_UNTIL: Gauge = register_gauge!(opts!(
+	static ref BITCOIN_BANNED_UNTIL: GaugeVec = register_gauge_vec!(
 		"bitcoin_banned_until",
 		"Time the ban expires",
-		labels! {"address" => "", "reason" => ""}
-	))
+		&["address", "reason"]
+	)
 	.unwrap();
 	static ref BITCOIN_SERVER_VERSION: Gauge =
 		register_gauge!("bitcoin_server_version", "The server version").unwrap();
@@ -158,11 +160,11 @@ lazy_static! {
 		"Estimated network hash rate per second for the last 120 blocks"
 	)
 	.unwrap();
-	static ref EXPORTER_ERRORS: Counter = register_counter!(opts!(
+	static ref EXPORTER_ERRORS: CounterVec = register_counter_vec!(
 		"bitcoin_exporter_errors",
 		"Number of errors encountered by the exporter",
-		labels! {"type" => "", }
-	))
+		&["type"]
+	)
 	.unwrap();
 	static ref PROCESS_TIME: Counter = register_counter!(
 		"bitcoin_exporter_process_time",
@@ -178,43 +180,109 @@ lazy_static! {
 async fn serve_req(_req: Request<Body>, rpc: Arc<Client>) -> Result<Response<Body>, hyper::Error> {
 	let encoder = TextEncoder::new();
 
-	let uptime = rpc.uptime().unwrap();
-	BITCOIN_UPTIME.set(uptime as f64);
-	let blockchaininfo = rpc.get_blockchain_info().unwrap();
-	BITCOIN_BLOCKS.set(blockchaininfo.blocks as f64);
-	let networkinfo = rpc.get_network_info().unwrap();
-	BITCOIN_PEERS.set(networkinfo.connections as f64);
-	if let Some(connections_in) = networkinfo.connections_in {
-		BITCOIN_CONN_IN.set(connections_in as f64);
+	if let Ok(uptime) = rpc.uptime() {
+		BITCOIN_UPTIME.set(uptime as f64);
 	}
-	if let Some(connections_out) = networkinfo.connections_out {
-		BITCOIN_CONN_OUT.set(connections_out as f64);
+
+	if let Ok(blockchaininfo) = rpc.get_blockchain_info() {
+		BITCOIN_BLOCKS.set(blockchaininfo.blocks as f64);
+		BITCOIN_DIFFICULTY.set(blockchaininfo.difficulty as f64);
+		BITCOIN_SIZE_ON_DISK.set(blockchaininfo.size_on_disk as f64);
+		BITCOIN_VERIFICATION_PROGRESS.set(blockchaininfo.verification_progress as f64);
+
+		if let Ok(latest_blockstats) = rpc.get_block_stats2(
+			HashOrHeight::Hash(blockchaininfo.best_block_hash),
+			Some(vec![
+				"total_size",
+				"total_weight",
+				"total_fee",
+				"txs",
+				"height",
+				"ins",
+				"outs",
+				"total_out",
+			]),
+		) {
+			BITCOIN_LATEST_BLOCK_SIZE.set(latest_blockstats.total_size as f64);
+			BITCOIN_LATEST_BLOCK_TXS.set(latest_blockstats.txs as f64);
+			BITCOIN_LATEST_BLOCK_HEIGHT.set(latest_blockstats.height as f64);
+			BITCOIN_LATEST_BLOCK_WEIGHT.set(latest_blockstats.total_weight as f64);
+			BITCOIN_LATEST_BLOCK_INPUTS.set(latest_blockstats.ins as f64);
+			BITCOIN_LATEST_BLOCK_OUTPUTS.set(latest_blockstats.outs as f64);
+			BITCOIN_LATEST_BLOCK_VALUE.set(latest_blockstats.total_out.as_sat() as f64);
+			BITCOIN_LATEST_BLOCK_FEE.set(latest_blockstats.total_fee.as_sat() as f64);
+		}
 	}
-	BITCOIN_DIFFICULTY.set(blockchaininfo.difficulty as f64);
-	let hashps = rpc.get_network_hash_ps(Some(120), None).unwrap();
-	BITCOIN_HASHPS.set(hashps);
-	let hashps = rpc.get_network_hash_ps(Some(0), None).unwrap();
-	BITCOIN_HASHPS_NEG1.set(hashps);
-	let hashps = rpc.get_network_hash_ps(Some(1), None).unwrap();
-	BITCOIN_HASHPS_1.set(hashps);
-	BITCOIN_SERVER_VERSION.set(networkinfo.version as f64);
-	BITCOIN_PROTOCOL_VERSION.set(networkinfo.protocol_version as f64);
-	BITCOIN_SIZE_ON_DISK.set(blockchaininfo.size_on_disk as f64);
-	BITCOIN_VERIFICATION_PROGRESS.set(blockchaininfo.verification_progress as f64);
-	if !networkinfo.warnings.is_empty() {
-		BITCOIN_WARNINGS.inc()
+
+	if let Ok(networkinfo) = rpc.get_network_info() {
+		BITCOIN_PEERS.set(networkinfo.connections as f64);
+		BITCOIN_SERVER_VERSION.set(networkinfo.version as f64);
+		BITCOIN_PROTOCOL_VERSION.set(networkinfo.protocol_version as f64);
+		if let Some(connections_in) = networkinfo.connections_in {
+			BITCOIN_CONN_IN.set(connections_in as f64);
+		}
+		if let Some(connections_out) = networkinfo.connections_out {
+			BITCOIN_CONN_OUT.set(connections_out as f64);
+		}
+		if !networkinfo.warnings.is_empty() {
+			BITCOIN_WARNINGS.inc()
+		}
 	}
-	let chaintips = rpc.get_chain_tips().unwrap();
-	BITCOIN_NUM_CHAINTIPS.set(chaintips.len() as f64);
-	let netotals = rpc.get_net_totals().unwrap();
-	BITCOIN_TOTAL_BYTES_RECV.set(netotals.total_bytes_recv as f64);
-	BITCOIN_TOTAL_BYTES_SENT.set(netotals.total_bytes_sent as f64);
+
+	if let Ok(hashps) = rpc.get_network_hash_ps(Some(120), None) {
+		BITCOIN_HASHPS.set(hashps);
+	}
+	if let Ok(hashps) = rpc.get_network_hash_ps(Some(0), None) {
+		BITCOIN_HASHPS_NEG1.set(hashps);
+	}
+	if let Ok(hashps) = rpc.get_network_hash_ps(Some(1), None) {
+		BITCOIN_HASHPS_1.set(hashps);
+	}
+
+	if let Ok(banned) = rpc.list_banned() {
+		for ban in banned.iter() {
+			BITCOIN_BAN_CREATED
+				.with_label_values(&[&ban.address, "manually added"])
+				.set(ban.ban_created as f64);
+			BITCOIN_BANNED_UNTIL
+				.with_label_values(&[&ban.address, "manually added"])
+				.set(ban.banned_until as f64);
+		}
+	}
+
+	if let Ok(txstats) = rpc.get_chain_tx_stats(None, None) {
+		BITCOIN_TXCOUNT.set(txstats.txcount as f64);
+	}
+
+	if let Ok(chaintips) = rpc.get_chain_tips() {
+		BITCOIN_NUM_CHAINTIPS.set(chaintips.len() as f64);
+	}
+
+	if let Ok(meminfo) = rpc.get_memory_info() {
+		BITCOIN_MEMINFO_USED.set(meminfo.locked.used as f64);
+		BITCOIN_MEMINFO_FREE.set(meminfo.locked.free as f64);
+		BITCOIN_MEMINFO_TOTAL.set(meminfo.locked.total as f64);
+		BITCOIN_MEMINFO_LOCKED.set(meminfo.locked.locked as f64);
+		BITCOIN_MEMINFO_CHUNKS_USED.set(meminfo.locked.chunks_used as f64);
+		BITCOIN_MEMINFO_CHUNKS_FREE.set(meminfo.locked.chunks_free as f64);
+	}
+
+	if let Ok(mempool) = rpc.get_mempool_info() {
+		BITCOIN_MEMPOOL_BYTES.set(mempool.bytes as f64);
+		BITCOIN_MEMPOOL_SIZE.set(mempool.size as f64);
+		BITCOIN_MEMPOOL_USAGE.set(mempool.usage as f64);
+		BITCOIN_MEMPOOL_UNBROADCAST.set(mempool.unbroadcastcount as f64);
+	}
+
+	if let Ok(netotals) = rpc.get_net_totals() {
+		BITCOIN_TOTAL_BYTES_RECV.set(netotals.total_bytes_recv as f64);
+		BITCOIN_TOTAL_BYTES_SENT.set(netotals.total_bytes_sent as f64);
+	}
 
 	let metric_families = prometheus::gather();
 
 	let mut buffer = vec![];
 	encoder.encode(&metric_families, &mut buffer).unwrap();
-	// HTTP_BODY_GAUGE.set(buffer.len() as f64);
 
 	let response = Response::builder()
 		.status(200)
