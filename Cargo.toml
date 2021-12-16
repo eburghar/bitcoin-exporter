@@ -1,6 +1,6 @@
 [package]
 name = "bitcoin-exporter"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -15,8 +15,11 @@ tokio = { version = "^1.0", features = ["macros", "rt-multi-thread"] }
 env_logger = "0.9.0"
 log = "0.4.14"
 bitcoin = "0.27.1"
+serde = "1.0.132"
+serde_yaml = "0.8.23"
 
 [patch.crates-io]
-bitcoincore-rpc = { git = "https://git.itsufficient.me/rust/bitcoincore-rpc.git", ref = "master" }
-#bitcoincore-rpc = { path = "../bitcoincore-rpc/client" }
-#bitcoincore-rpc-json = { path = "../bitcoincore-rpc/json" }
+bitcoincore-rpc = { git = "https://git.itsufficient.me/rust/bitcoincore-rpc.git", branch = "master" }
+bitcoincore-rpc-json = { git = "https://git.itsufficient.me/rust/bitcoincore-rpc.git", branch = "master" }
+# bitcoincore-rpc = { path = "../bitcoincore-rpc/client" }
+# bitcoincore-rpc-json = { path = "../bitcoincore-rpc/json" }

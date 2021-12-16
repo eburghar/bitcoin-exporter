@@ -1,4 +1,5 @@
 mod args;
+mod config;
 
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoincore_rpc_json::HashOrHeight;
@@ -14,14 +15,15 @@ use prometheus::{
 };
 use std::sync::Arc;
 
-use crate::args::Args;
+use crate::{args::Args, config::Config};
 
 // converted from https://github.com/jvstein/bitcoin-prometheus-exporter/blob/master/bitcoind-monitor.py
 
 lazy_static! {
-	static ref BITCOIN_UPTIME: Gauge = register_gauge!(
+	static ref BITCOIN_UPTIME: GaugeVec = register_gauge_vec!(
 		"bitcoin_uptime",
-		"Number of seconds the Bitcoin daemon has been running"
+		"Number of seconds the Bitcoin daemon has been running",
+		&["version", "protocol"]
 	)
 	.unwrap();
 	static ref BITCOIN_BLOCKS: Gauge = register_gauge!("bitcoin_blocks", "Block height").unwrap();
@@ -126,13 +128,6 @@ lazy_static! {
 		&["address", "reason"]
 	)
 	.unwrap();
-	static ref BITCOIN_SERVER_VERSION: Gauge =
-		register_gauge!("bitcoin_server_version", "The server version").unwrap();
-	static ref BITCOIN_PROTOCOL_VERSION: Gauge = register_gauge!(
-		"bitcoin_protocol_version",
-		"The protocol version of the server"
-	)
-	.unwrap();
 	static ref BITCOIN_SIZE_ON_DISK: Gauge = register_gauge!(
 		"bitcoin_size_on_disk",
 		"Estimated size of the block and undo files"
@@ -180,10 +175,6 @@ lazy_static! {
 async fn serve_req(_req: Request<Body>, rpc: Arc<Client>) -> Result<Response<Body>, hyper::Error> {
 	let encoder = TextEncoder::new();
 
-	if let Ok(uptime) = rpc.uptime() {
-		BITCOIN_UPTIME.set(uptime as f64);
-	}
-
 	if let Ok(blockchaininfo) = rpc.get_blockchain_info() {
 		BITCOIN_BLOCKS.set(blockchaininfo.blocks as f64);
 		BITCOIN_DIFFICULTY.set(blockchaininfo.difficulty as f64);
@@ -215,9 +206,15 @@ async fn serve_req(_req: Request<Body>, rpc: Arc<Client>) -> Result<Response<Bod
 	}
 
 	if let Ok(networkinfo) = rpc.get_network_info() {
+		if let Ok(uptime) = rpc.uptime() {
+			BITCOIN_UPTIME
+				.with_label_values(&[
+					&networkinfo.version.to_string(),
+					&networkinfo.protocol_version.to_string(),
+				])
+				.set(uptime as f64);
+		}
 		BITCOIN_PEERS.set(networkinfo.connections as f64);
-		BITCOIN_SERVER_VERSION.set(networkinfo.version as f64);
-		BITCOIN_PROTOCOL_VERSION.set(networkinfo.protocol_version as f64);
 		if let Some(connections_in) = networkinfo.connections_in {
 			BITCOIN_CONN_IN.set(connections_in as f64);
 		}
@@ -294,7 +291,7 @@ async fn serve_req(_req: Request<Body>, rpc: Arc<Client>) -> Result<Response<Bod
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
 	// setup logging
 	env_logger::init_from_env(
 		env_logger::Env::new()
@@ -303,11 +300,15 @@ async fn main() {
 	);
 	log::info!("{} v{}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
 
+	// parse args
 	let args: Args = args::from_env();
-	let rpc = Client::new(&args.host, Auth::UserPass(args.user, args.password)).unwrap();
+	// parse yaml config
+	let config = Config::read(&args.config)?;
+
+	let rpc = Client::new(&config.host, Auth::UserPass(config.user, config.password)).unwrap();
 	let rpc = Arc::new(rpc);
 
-	let addr = ([127, 0, 0, 1], 9898).into();
+	let addr = &config.bind.parse()?;
 	log::info!("listening on http://{}", addr);
 
 	let serve_future = make_service_fn(move |_| {
@@ -322,6 +323,7 @@ async fn main() {
 
 	let server = Server::bind(&addr).serve(serve_future);
 	if let Err(err) = server.await {
-		eprintln!("server error: {}", err);
+		log::error!("server error: {}", err);
 	}
+	Ok(())
 }

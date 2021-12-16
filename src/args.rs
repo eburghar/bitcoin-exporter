@@ -1,26 +1,21 @@
 use argh::{FromArgs, TopLevelCommand};
 use std::{env, path::Path};
 
-/// Get vault secrets from path expressions, define environment variables, then execute into args and command
+/// Export bitcoin core metrics to prometheus format
 #[derive(FromArgs)]
 pub struct Args {
-	/// bitcoin host and port (http://localhost:8332)
-	#[argh(option, short = 'h', default = "\"http://localhost:8332\".to_owned()")]
-	pub host: String,
+	/// configuration file
+	#[argh(option, short = 'c', default = "\"/etc/bitcoin-explorer/config.yaml\".to_owned()")]
+	pub config: String,
 
-	/// rpc user
-	#[argh(option, short = 'u')]
-	pub user: String,
-
-	/// rpc password
-	#[argh(option, short = 'p')]
-	pub password: String,
+	/// more detailed output
+	#[argh(switch, short = 'v')]
+	pub verbose: bool,
 }
 
-/// copy of argh::from_env to insert command name and version
+/// copy of argh::from_env to insert command name and version in help text
 pub fn from_env<T: TopLevelCommand>() -> T {
 	let args: Vec<String> = std::env::args().collect();
-	// get the file name of path or the full path
 	let cmd = Path::new(&args[0])
 		.file_name()
 		.and_then(|s| s.to_str())
