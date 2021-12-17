@@ -59,8 +59,8 @@ pub(crate) async fn serve_req(
 				BITCOIN_LATEST_BLOCK_WEIGHT.set(latest_blockstats.total_weight as f64);
 				BITCOIN_LATEST_BLOCK_INPUTS.set(latest_blockstats.ins as f64);
 				BITCOIN_LATEST_BLOCK_OUTPUTS.set(latest_blockstats.outs as f64);
-				BITCOIN_LATEST_BLOCK_VALUE.set(latest_blockstats.total_out.as_sat() as f64);
-				BITCOIN_LATEST_BLOCK_FEE.set(latest_blockstats.total_fee.as_sat() as f64);
+				BITCOIN_LATEST_BLOCK_VALUE.set(latest_blockstats.total_out.as_btc() as f64);
+				BITCOIN_LATEST_BLOCK_FEE.set(latest_blockstats.total_fee.as_btc() as f64);
 			}
 		}
 
