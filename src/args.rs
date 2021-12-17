@@ -4,8 +4,8 @@ use std::{env, path::Path};
 /// Export bitcoin core metrics to prometheus format
 #[derive(FromArgs)]
 pub struct Args {
-	/// configuration file
-	#[argh(option, short = 'c', default = "\"/etc/bitcoin-explorer/config.yaml\".to_owned()")]
+	/// configuration file (/etc/bitcoin/exporter.yaml)
+	#[argh(option, short = 'c', default = "\"/etc/bitcoin/exporter.yaml\".to_owned()")]
 	pub config: String,
 
 	/// more detailed output

@@ -5,25 +5,24 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use bitcoincore_rpc_json::HashOrHeight;
 use hyper::{
 	header::CONTENT_TYPE,
+	server::conn::AddrStream,
 	service::{make_service_fn, service_fn},
-	Body, Request, Response, Server,
+	Body, Method, Request, Response, Server,
 };
 use lazy_static::lazy_static;
 use prometheus::{
 	register_counter, register_counter_vec, register_gauge, register_gauge_vec, Counter,
 	CounterVec, Encoder, Gauge, GaugeVec, TextEncoder,
 };
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::{args::Args, config::Config};
-
-// converted from https://github.com/jvstein/bitcoin-prometheus-exporter/blob/master/bitcoind-monitor.py
 
 lazy_static! {
 	static ref BITCOIN_UPTIME: GaugeVec = register_gauge_vec!(
 		"bitcoin_uptime",
 		"Number of seconds the Bitcoin daemon has been running",
-		&["version", "protocol"]
+		&["version", "protocol", "chain"]
 	)
 	.unwrap();
 	static ref BITCOIN_BLOCKS: Gauge = register_gauge!("bitcoin_blocks", "Block height").unwrap();
@@ -166,63 +165,113 @@ lazy_static! {
 		"Time spent processing metrics from bitcoin node"
 	)
 	.unwrap();
+	// static definition for now (TODO: use const expression)
+	static ref SMART_FEE_2: Gauge = register_gauge!(
+		"bitcoin_est_smart_fee_2",
+		"Estimated smart fee per kilobyte for confirmation in 2 blocks"
+	).unwrap();
+	static ref SMART_FEE_3: Gauge = register_gauge!(
+		"bitcoin_est_smart_fee_3",
+		"Estimated smart fee per kilobyte for confirmation in 3 blocks"
+	).unwrap();
+	static ref SMART_FEE_5: Gauge = register_gauge!(
+		"bitcoin_est_smart_fee_5",
+		"Estimated smart fee per kilobyte for confirmation in 5 blocks"
+	).unwrap();
+	static ref SMART_FEE_20: Gauge = register_gauge!(
+		"bitcoin_est_smart_fee_20",
+		"Estimated smart fee per kilobyte for confirmation in 20 blocks"
+	).unwrap();
 }
 
-// # Create Prometheus metrics to track bitcoind stats.
-
-// BITCOIN_ESTIMATED_SMART_FEE_GAUGES = {}  # type: Dict[int, Gauge]
-
-async fn serve_req(_req: Request<Body>, rpc: Arc<Client>) -> Result<Response<Body>, hyper::Error> {
-	let encoder = TextEncoder::new();
-
-	if let Ok(blockchaininfo) = rpc.get_blockchain_info() {
-		BITCOIN_BLOCKS.set(blockchaininfo.blocks as f64);
-		BITCOIN_DIFFICULTY.set(blockchaininfo.difficulty as f64);
-		BITCOIN_SIZE_ON_DISK.set(blockchaininfo.size_on_disk as f64);
-		BITCOIN_VERIFICATION_PROGRESS.set(blockchaininfo.verification_progress as f64);
-
-		if let Ok(latest_blockstats) = rpc.get_block_stats2(
-			HashOrHeight::Hash(blockchaininfo.best_block_hash),
-			Some(vec![
-				"total_size",
-				"total_weight",
-				"total_fee",
-				"txs",
-				"height",
-				"ins",
-				"outs",
-				"total_out",
-			]),
-		) {
-			BITCOIN_LATEST_BLOCK_SIZE.set(latest_blockstats.total_size as f64);
-			BITCOIN_LATEST_BLOCK_TXS.set(latest_blockstats.txs as f64);
-			BITCOIN_LATEST_BLOCK_HEIGHT.set(latest_blockstats.height as f64);
-			BITCOIN_LATEST_BLOCK_WEIGHT.set(latest_blockstats.total_weight as f64);
-			BITCOIN_LATEST_BLOCK_INPUTS.set(latest_blockstats.ins as f64);
-			BITCOIN_LATEST_BLOCK_OUTPUTS.set(latest_blockstats.outs as f64);
-			BITCOIN_LATEST_BLOCK_VALUE.set(latest_blockstats.total_out.as_sat() as f64);
-			BITCOIN_LATEST_BLOCK_FEE.set(latest_blockstats.total_fee.as_sat() as f64);
-		}
+/// Create Prometheus metrics to track bitcoind stats.
+async fn serve_req(
+	req: Request<Body>,
+	addr: SocketAddr,
+	rpc: Arc<Client>,
+) -> Result<Response<Body>, hyper::Error> {
+	if req.method() != Method::GET || req.uri().path() != "/metrics" {
+		log::warn!("  [{}] {} {}", addr, req.method(), req.uri().path());
+		return Ok(Response::default());
 	}
 
+	let encoder = TextEncoder::new();
+
+	// TODO: use async tasks to do rpc calls in //
 	if let Ok(networkinfo) = rpc.get_network_info() {
-		if let Ok(uptime) = rpc.uptime() {
-			BITCOIN_UPTIME
-				.with_label_values(&[
-					&networkinfo.version.to_string(),
-					&networkinfo.protocol_version.to_string(),
-				])
-				.set(uptime as f64);
+		if let Ok(blockchaininfo) = rpc.get_blockchain_info() {
+			// uptime came with version, protocol and chain label
+			if let Ok(uptime) = rpc.uptime() {
+				BITCOIN_UPTIME
+					.with_label_values(&[
+						&networkinfo.version.to_string(),
+						&networkinfo.protocol_version.to_string(),
+						&blockchaininfo.chain,
+					])
+					.set(uptime as f64);
+			}
+
+			BITCOIN_BLOCKS.set(blockchaininfo.blocks as f64);
+			BITCOIN_DIFFICULTY.set(blockchaininfo.difficulty as f64);
+			BITCOIN_SIZE_ON_DISK.set(blockchaininfo.size_on_disk as f64);
+			BITCOIN_VERIFICATION_PROGRESS.set(blockchaininfo.verification_progress as f64);
+
+			if let Ok(latest_blockstats) = rpc.get_block_stats2(
+				HashOrHeight::Hash(blockchaininfo.best_block_hash),
+				Some(vec![
+					"total_size",
+					"total_weight",
+					"total_fee",
+					"txs",
+					"height",
+					"ins",
+					"outs",
+					"total_out",
+				]),
+			) {
+				BITCOIN_LATEST_BLOCK_SIZE.set(latest_blockstats.total_size as f64);
+				BITCOIN_LATEST_BLOCK_TXS.set(latest_blockstats.txs as f64);
+				BITCOIN_LATEST_BLOCK_HEIGHT.set(latest_blockstats.height as f64);
+				BITCOIN_LATEST_BLOCK_WEIGHT.set(latest_blockstats.total_weight as f64);
+				BITCOIN_LATEST_BLOCK_INPUTS.set(latest_blockstats.ins as f64);
+				BITCOIN_LATEST_BLOCK_OUTPUTS.set(latest_blockstats.outs as f64);
+				BITCOIN_LATEST_BLOCK_VALUE.set(latest_blockstats.total_out.as_sat() as f64);
+				BITCOIN_LATEST_BLOCK_FEE.set(latest_blockstats.total_fee.as_sat() as f64);
+			}
 		}
+
 		BITCOIN_PEERS.set(networkinfo.connections as f64);
+
 		if let Some(connections_in) = networkinfo.connections_in {
 			BITCOIN_CONN_IN.set(connections_in as f64);
 		}
 		if let Some(connections_out) = networkinfo.connections_out {
 			BITCOIN_CONN_OUT.set(connections_out as f64);
 		}
+
 		if !networkinfo.warnings.is_empty() {
 			BITCOIN_WARNINGS.inc()
+		}
+	}
+
+	if let Ok(smartfee) = rpc.estimate_smart_fee(2, None) {
+		if let Some(fee_rate) = smartfee.fee_rate {
+			SMART_FEE_2.set(fee_rate.as_sat() as f64)
+		}
+	}
+	if let Ok(smartfee) = rpc.estimate_smart_fee(3, None) {
+		if let Some(fee_rate) = smartfee.fee_rate {
+			SMART_FEE_3.set(fee_rate.as_sat() as f64)
+		}
+	}
+	if let Ok(smartfee) = rpc.estimate_smart_fee(5, None) {
+		if let Some(fee_rate) = smartfee.fee_rate {
+			SMART_FEE_5.set(fee_rate.as_sat() as f64)
+		}
+	}
+	if let Ok(smartfee) = rpc.estimate_smart_fee(20, None) {
+		if let Some(fee_rate) = smartfee.fee_rate {
+			SMART_FEE_20.set(fee_rate.as_sat() as f64)
 		}
 	}
 
@@ -311,12 +360,13 @@ async fn main() -> anyhow::Result<()> {
 	let addr = &config.bind.parse()?;
 	log::info!("listening on http://{}", addr);
 
-	let serve_future = make_service_fn(move |_| {
+	let serve_future = make_service_fn(move |socket: &AddrStream| {
 		let rpc = rpc.clone();
+		let addr = socket.remote_addr();
 		async move {
 			Ok::<_, hyper::Error>(service_fn(move |req| {
 				let rpc = rpc.clone();
-				serve_req(req, rpc)
+				serve_req(req, addr, rpc)
 			}))
 		}
 	});
