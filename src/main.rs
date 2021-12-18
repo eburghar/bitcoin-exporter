@@ -27,14 +27,16 @@ async fn main() -> anyhow::Result<()> {
 	let args: Args = args::from_env();
 	// parse yaml config
 	let config = Config::read(&args.config)?;
-
-	let rpc = Client::new(&config.host, Auth::UserPass(config.user, config.password)).unwrap();
-	let rpc = Arc::new(rpc);
-
 	let addr = &config.bind.parse()?;
-	log::info!("listening on http://{}", addr);
+
+	// create rpc client
+	let rpc = Arc::new(Client::new(
+		&config.host,
+		Auth::UserPass(config.user, config.password),
+	)?);
 
 	let serve_future = make_service_fn(move |socket: &AddrStream| {
+		log::info!("listening on http://{}", addr);
 		let rpc = rpc.clone();
 		let addr = socket.remote_addr();
 		async move {
@@ -45,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
 		}
 	});
 
+	// launch server
 	let server = Server::bind(&addr).serve(serve_future);
 	if let Err(err) = server.await {
 		log::error!("server error: {}", err);
