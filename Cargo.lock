@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "bitcoin-exporter"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "argh",
@@ -121,7 +121,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc"
 version = "0.14.0"
-source = "git+https://git.itsufficient.me/rust/bitcoincore-rpc.git?branch=master#201bb28f78d22b932bf209817512b273ba28a4ea"
+source = "git+https://git.itsufficient.me/rust/bitcoincore-rpc.git?branch=master#a96d245e4bd740bdbd1173c8ead1da47070e92a4"
 dependencies = [
  "bitcoincore-rpc-json",
  "jsonrpc",
@@ -133,7 +133,7 @@ dependencies = [
 [[package]]
 name = "bitcoincore-rpc-json"
 version = "0.14.0"
-source = "git+https://git.itsufficient.me/rust/bitcoincore-rpc.git?branch=master#201bb28f78d22b932bf209817512b273ba28a4ea"
+source = "git+https://git.itsufficient.me/rust/bitcoincore-rpc.git?branch=master#a96d245e4bd740bdbd1173c8ead1da47070e92a4"
 dependencies = [
  "bitcoin",
  "serde",

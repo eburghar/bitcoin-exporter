@@ -13,9 +13,9 @@ use crate::metrics::{
 	BITCOIN_MEMINFO_CHUNKS_USED, BITCOIN_MEMINFO_FREE, BITCOIN_MEMINFO_LOCKED,
 	BITCOIN_MEMINFO_TOTAL, BITCOIN_MEMINFO_USED, BITCOIN_MEMPOOL_BYTES, BITCOIN_MEMPOOL_SIZE,
 	BITCOIN_MEMPOOL_UNBROADCAST, BITCOIN_MEMPOOL_USAGE, BITCOIN_NUM_CHAINTIPS, BITCOIN_PEERS,
-	BITCOIN_SIZE_ON_DISK, BITCOIN_TOTAL_BYTES_RECV, BITCOIN_TOTAL_BYTES_SENT, BITCOIN_TXCOUNT,
-	BITCOIN_UPTIME, BITCOIN_VERIFICATION_PROGRESS, BITCOIN_WARNINGS, SMART_FEE_2, SMART_FEE_20,
-	SMART_FEE_3, SMART_FEE_5,
+	BITCOIN_RPC_ACTIVE, BITCOIN_SIZE_ON_DISK, BITCOIN_TOTAL_BYTES_RECV, BITCOIN_TOTAL_BYTES_SENT,
+	BITCOIN_TXCOUNT, BITCOIN_UPTIME, BITCOIN_VERIFICATION_PROGRESS, BITCOIN_WARNINGS, SMART_FEE_2,
+	SMART_FEE_20, SMART_FEE_3, SMART_FEE_5,
 };
 
 /// Create Prometheus metrics to track bitcoind stats.
@@ -31,7 +31,6 @@ pub(crate) async fn serve_req(
 
 	let encoder = TextEncoder::new();
 
-	// TODO: use async tasks to do rpc calls in //
 	if let Ok(networkinfo) = rpc.get_network_info() {
 		if let Ok(blockchaininfo) = rpc.get_blockchain_info() {
 			// uptime came with version, protocol and chain label
@@ -147,6 +146,10 @@ pub(crate) async fn serve_req(
 	if let Ok(netotals) = rpc.get_net_totals() {
 		BITCOIN_TOTAL_BYTES_RECV.set(netotals.total_bytes_recv as f64);
 		BITCOIN_TOTAL_BYTES_SENT.set(netotals.total_bytes_sent as f64);
+	}
+
+	if let Ok(rpcinfo) = rpc.get_rpc_info() {
+		BITCOIN_RPC_ACTIVE.set((rpcinfo.active_commands.len() - 1) as f64)
 	}
 
 	let metric_families = prometheus::gather();
