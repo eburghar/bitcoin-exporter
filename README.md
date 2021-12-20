@@ -27,7 +27,7 @@ the bitcoind server rpc parameters.
 ```yaml
 user: user
 password: changeme
-host: 'http://localhost:3222'
+host: 'http://localhost:8332'
 bind: '127.0.0.1:9898'
 ```
 

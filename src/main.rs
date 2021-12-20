@@ -3,7 +3,7 @@ mod config;
 mod metrics;
 mod serve;
 
-use bitcoincore_rpc::{Auth, Client};
+use bitcoincore_rpc::{Auth, Client, Error};
 use hyper::{
 	server::conn::AddrStream,
 	service::{make_service_fn, service_fn},
@@ -11,7 +11,11 @@ use hyper::{
 };
 use std::sync::Arc;
 
-use crate::{args::Args, config::Config, serve::serve_req};
+use crate::{
+	args::Args,
+	config::Config,
+	serve::serve_req,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -40,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 		let rpc = rpc.clone();
 		let addr = socket.remote_addr();
 		async move {
-			Ok::<_, hyper::Error>(service_fn(move |req| {
+			Ok::<_, Error>(service_fn(move |req| {
 				let rpc = rpc.clone();
 				serve_req(req, addr, rpc)
 			}))
@@ -48,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
 	});
 
 	// launch server
-	let server = Server::bind(&addr).serve(serve_future);
+	let server = Server::bind(addr).serve(serve_future);
 	if let Err(err) = server.await {
 		log::error!("server error: {}", err);
 	}

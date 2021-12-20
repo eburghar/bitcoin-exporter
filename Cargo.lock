@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "bitcoin-exporter"
-version = "0.5.1"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "argh",
@@ -106,6 +106,7 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_yaml",
+ "thiserror",
  "tokio",
 ]
 

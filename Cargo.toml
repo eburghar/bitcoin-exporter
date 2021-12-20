@@ -1,7 +1,7 @@
 [package]
 name = "bitcoin-exporter"
 description = "Expose bitcoin core metrics in prometheus format"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 
 [dependencies]
@@ -18,6 +18,7 @@ log = "0.4.14"
 bitcoin = "0.27.1"
 serde = "1.0.132"
 serde_yaml = "0.8.23"
+thiserror = "1.0.30"
 
 [patch.crates-io]
 bitcoincore-rpc = { git = "https://github.com/eburghar/rust-bitcoincore-rpc.git", branch = "master" }
