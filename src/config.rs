@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std::fs::File;
 
 fn default_host() -> String {
-	"http://localhost:8332".to_owned()
+	"http://127.0.0.1:8332".to_owned()
 }
 
 fn default_bind() -> String {

@@ -9,7 +9,7 @@ with applied [pr157](https://github.com/rust-bitcoin/rust-bitcoincore-rpc/pull/1
 [pr171](https://github.com/rust-bitcoin/rust-bitcoincore-rpc/pull/171) and missing rpc calls implemented.
 
 ```
-bitcoin-exporter 0.5.2
+bitcoin-exporter 0.5.4
 
 Usage: bitcoin-exporter [-c <config>] [-v]
 
